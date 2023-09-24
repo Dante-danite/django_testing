@@ -2,29 +2,13 @@ from http import HTTPStatus
 
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase
-from django.urls import reverse
 
 from notes.models import Note
 
-User = get_user_model()
+from .fixtures import (AUTHOR_URLS, ONLY_AUTH_URLS, PUBLIC_URLS,
+                       REDIRECTS_ANONYM, SLUG)
 
-SLUG = 'slug'
-URL_NOTES_HOME = reverse('notes:home')
-URL_NOTES_ADD = reverse('notes:add')
-URL_NOTES_EDIT = reverse('notes:edit', args=(SLUG,))
-URL_NOTES_DETAIL = reverse('notes:detail', args=(SLUG,))
-URL_NOTES_DELETE = reverse('notes:delete', args=(SLUG,))
-URL_NOTES_LIST = reverse('notes:list')
-URL_NOTES_SUCCESS = reverse('notes:success')
-URL_USERS_LOGIN = reverse('users:login')
-URL_USERS_LOGOUT = reverse('users:logout')
-URL_USERS_SINGIN = reverse('users:signup')
-URL_REDIRECT_ADD = f'{URL_USERS_LOGIN}?next={URL_NOTES_ADD}'
-URL_REDIRECT_SUCCESS = f'{URL_USERS_LOGIN}?next={URL_NOTES_SUCCESS}'
-URL_REDIRECT_LIST = f'{URL_USERS_LOGIN}?next={URL_NOTES_LIST}'
-URL_REDIRECT_DETAIL = f'{URL_USERS_LOGIN}?next={URL_NOTES_DETAIL}'
-URL_REDIRECT_EDIT = f'{URL_USERS_LOGIN}?next={URL_NOTES_EDIT}'
-URL_REDIRECT_DELETE = f'{URL_USERS_LOGIN}?next={URL_NOTES_DELETE}'
+User = get_user_model()
 
 
 class TestRoutes(TestCase):
@@ -44,44 +28,57 @@ class TestRoutes(TestCase):
         self.client_reader = Client()
         self.client_reader.force_login(self.reader)
 
-    def test_overall_avaliability(self):
-        avaliability_data = (
-            (URL_NOTES_HOME, self.client_reader, HTTPStatus.OK),
-            (URL_NOTES_HOME, self.client_author, HTTPStatus.OK),
-            (URL_USERS_LOGIN, self.client_reader, HTTPStatus.OK),
-            (URL_USERS_LOGIN, self.client_author, HTTPStatus.OK),
-            (URL_USERS_SINGIN, self.client_reader, HTTPStatus.OK),
-            (URL_USERS_SINGIN, self.client_author, HTTPStatus.OK),
-            (URL_NOTES_EDIT, self.client_reader, HTTPStatus.NOT_FOUND),
-            (URL_NOTES_EDIT, self.client_author, HTTPStatus.OK),
-            (URL_NOTES_DETAIL, self.client_reader, HTTPStatus.NOT_FOUND),
-            (URL_NOTES_DETAIL, self.client_author, HTTPStatus.OK),
-            (URL_NOTES_DELETE, self.client_reader, HTTPStatus.NOT_FOUND),
-            (URL_NOTES_DELETE, self.client_author, HTTPStatus.OK),
-            (URL_USERS_LOGOUT, self.client_author, HTTPStatus.OK),
-            (URL_USERS_LOGOUT, self.client_reader, HTTPStatus.OK),
+    def test_overall_availability(self):
+        """
+        Главная страница доступна анонимному пользователю.
+
+        Аутентифицированному пользователю доступна страница со списком заметок
+        notes/, страница успешного добавления заметки done/,
+        страница добавления новой заметки add/.
+
+
+        Страницы отдельной заметки, удаления и редактирования заметки доступны
+        только автору заметки. Если на эти страницы попытается зайти
+        другой пользователь — вернётся ошибка 404.
+
+        При попытке перейти на страницу списка заметок, страницу успешного
+        добавления записи, страницу добавления заметки, отдельной заметки,
+        редактирования или удаления заметки анонимный пользователь
+        перенаправляется на страницу логина.
+
+        Страницы регистрации пользователей, входа в учётную запись и
+        выхода из неё доступны всем пользователям.
+        """
+        availability_data = (
+
+            (self.client,
+             ONLY_AUTH_URLS + AUTHOR_URLS,
+             HTTPStatus.FOUND),
+
+            (self.client_reader,
+             AUTHOR_URLS,
+             HTTPStatus.NOT_FOUND),
+
+            (self.client, PUBLIC_URLS, HTTPStatus.OK),
+            (self.client_reader, ONLY_AUTH_URLS + PUBLIC_URLS, HTTPStatus.OK),
+
+            (self.client_author,
+             ONLY_AUTH_URLS + AUTHOR_URLS + PUBLIC_URLS,
+             HTTPStatus.OK),
         )
-        for url, client, status in avaliability_data:
-            with self.subTest(url=url, client=client, status=status):
-                response = client.get(url)
-                self.assertEqual(response.status_code, status)
+
+        for case in availability_data:
+            client, urls, status = case
+            for url in urls:
+                with self.subTest(url=url, client=client, status=status):
+                    response = client.get(url)
+                    self.assertEqual(response.status_code, status)
 
     def test_overall_redirect(self):
-        redirect_data = (
-            (URL_NOTES_SUCCESS, self.client,
-             URL_REDIRECT_SUCCESS),
-            (URL_NOTES_ADD, self.client,
-             URL_REDIRECT_ADD),
-            (URL_NOTES_LIST, self.client,
-             URL_REDIRECT_LIST),
-            (URL_NOTES_DETAIL, self.client,
-             URL_REDIRECT_DETAIL),
-            (URL_NOTES_EDIT, self.client,
-             URL_REDIRECT_EDIT),
-            (URL_NOTES_DELETE, self.client,
-             URL_REDIRECT_DELETE)
-        )
-        for url, user, redirect_url in redirect_data:
-            with self.subTest(url=url, user=user, redirect_url=redirect_url):
-                response = user.get(url)
+        """
+        Проверка редиректов анонимного пользователя
+        """
+        for url, redirect_url in REDIRECTS_ANONYM:
+            with self.subTest(url=url, redirect_url=redirect_url):
+                response = self.client.get(url)
                 self.assertRedirects(response, redirect_url)
